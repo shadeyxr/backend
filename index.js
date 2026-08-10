@@ -1,11 +1,11 @@
 const express = require("express");
-const cors = require("cors");
 const app = express();
+require("dotenv").config();
+const Note = require("./models");
 const PORT = process.env.PORT || 3001;
 
-app.use(express.json());
-app.use(cors());
 app.use(express.static("dist"));
+app.use(express.json());
 
 let notes = [
   {
@@ -85,42 +85,76 @@ let notes = [
   },
 ];
 
+const errorHandler = (error, request, response, next) => {
+  console.log(error);
+
+  if (error.name === "CastError") {
+    return response.status(400).json({ error: "malformatted request" });
+  }
+
+  next(error);
+};
+
 app.get("/notes", (request, response) => {
-  response.json(notes);
+  Note.find({}).then((result) => {
+    response.json(result);
+  });
 });
 
-app.get("/notes/:id", (request, response) => {
+app.get("/notes/:id", (request, response, next) => {
   const id = request.params.id;
-  const note = notes.find((n) => n.id === id);
-  response.json(note);
+  Note.findById(id)
+    .then((result) => {
+      if (result) {
+        response.json(result);
+      } else {
+        response.status(404).end();
+      }
+    })
+    .catch(next);
 });
 
 app.post("/notes", (request, response) => {
   const newNoteContent = request.body;
 
-  const maxID = Math.max(...notes.map((n) => n.id));
-
-  const newNote = {
+  const newNote = new Note({
     content: newNoteContent.content,
     important: newNoteContent.important,
-    id: String(maxID + 1),
-  };
+  });
 
-  notes = notes.concat(newNote);
-  response.json(newNote);
+  newNote.save().then((savedNote) => {
+    response.json(savedNote);
+  });
 });
 
-app.put("/notes/:id", (request, response) => {
-  const updatedNote = request.body;
+app.put("/notes/:id", (request, response, next) => {
   const id = request.params.id;
 
-  try {
-    notes = notes.map((n) => (n.id === id ? updatedNote : n));
-    response.json(updatedNote);
-  } catch {
-    return response.status(404).json({ error: "note not found" });
-  }
+  Note.findById(id)
+    .then((note) => {
+      if (!note) {
+        return response.status(404).end();
+      }
+      note.content = request.body.content;
+      note.important = request.body.important;
+
+      return note.save().then((result) => {
+        return response.json(result);
+      });
+    })
+    .catch(next);
 });
+
+app.delete("/notes/:id", (request, response, next) => {
+  Note.findByIdAndDelete(request.params.id)
+    .then((result) => {
+      console.log(result);
+      return response.status(204).end;
+    })
+    .catch(next);
+});
+
+app.use(errorHandler);
 
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
